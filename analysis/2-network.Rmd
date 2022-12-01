@@ -1,0 +1,395 @@
+---
+title: "2-baseline"
+author: "Bernard"
+date: "2022-11-18"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+# Import packages
+
+```{r}
+library (tidyverse)
+library (bootnet)
+library (qgraph)
+library (correlation)
+library (officer)
+library (flextable)
+library (cowplot)
+```
+
+# Import data
+
+```{r}
+df <- readRDS("output/df.RDS")
+res <- readRDS("output/res.RDS")
+list2env(res,globalenv())
+```
+
+# Select data
+
+```{r}
+
+df <- df %>%
+  mutate (ms_end = (flex_s + ext_s)/1,
+          rom = (crom_lrot + crom_rrot + crom_e)/1,
+          ppt = (ppt_l_med + ppt_r_med + ppt_l_rad + ppt_r_rad + ppt_l_uln + ppt_r_uln +
+                   ppt_l_sup + ppt_r_sup + l_gon + r_gon)/10)
+df1 <- df %>%
+  dplyr::select (ms_end, ccft, rom, ppt, ppt, neckp0, headp0, ndi0, tsk0) %>%
+  mutate_all(scale, center = TRUE, scale = TRUE)
+  
+
+df2 <- df %>%
+  dplyr::select (ms_end, ccft, rom, ppt, ppt, neckp0, headp0, ndi0, tsk0, 
+                 neckp6, headp6, ndi6, tsk6) %>%
+  mutate_all(scale, center = TRUE, scale = TRUE)
+
+df3 <- df %>%
+  dplyr::select (ms_end, ccft, rom, ppt, ppt, 
+                 neckp6, headp6, ndi6, tsk6) %>%
+  mutate_all(scale, center = TRUE, scale = TRUE)
+
+df4 <- df %>%
+  dplyr::select (group, ccft, rot, ppt_ul, neckp0, headp0, ndi0, tsk0, neckp6, headp6, ndi6, tsk6) %>%
+  mutate (group = as.numeric (group) - 1)
+```
+
+# Correlation
+
+```{r}
+corr_df <- correlation (na.omit(df1), method = "auto")
+
+plot(visualisation_recipe(corr_df, layout = "dendrogram"))
+```
+
+# Network
+
+## Baseline only
+
+```{r}
+
+res1 <- huge::huge.npn (df1) %>% 
+  estimateNetwork(default="EBICglasso",
+                  corMethod = "cor_auto",
+                  missing = "pairwise",
+                  tuning = 0.5,
+                  lambda.min.ratio = 0.001)
+plot(res1,
+     labels = c("m.end", "ccft", "rom", "ppt", "np", "hp", "ndi", "tsk"))
+
+
+B <- 1000
+stats_type <- c("strength", "betweenness", "expectedInfluence", "closeness")
+centr_stb1 <- bootnet(res1,
+                     nBoots = B,
+                     type = "case",
+                     statistics = stats_type,
+                     verbose = FALSE)
+
+cor_stb1 <- corStability(centr_stb1)
+
+edgewts1 <-  bootnet(res1,
+                    nBoots = B,
+                    verbose = FALSE)
+
+
+## Post hoc sample size
+
+sim1 <- netSimulator(res1$graph,
+                     default = "EBICglasso",
+                     nCases = c(50, 100, 150, 200, 250,500),
+                     nReps = 1000,
+                     nCores = 4)
+
+```
+
+## Baseline with 6 months
+
+```{r}
+
+res2 <- huge::huge.npn (df2) %>% 
+  estimateNetwork(default="EBICglasso",
+                  corMethod = "cor_auto",
+                  missing = "pairwise",
+                  tuning = 0.5,
+                  lambda.min.ratio = 0.001)
+plot(res2,
+     labels = c("m.end", "ccft", "rom", "ppt", "np", "hp", "ndi", "tsk", "np6", "hp6", "ndi6", "tsk6"))
+
+
+centr_stb2 <- bootnet(res2,
+                     nBoots = B,
+                     type = "case",
+                     statistics = stats_type,
+                     verbose = FALSE)
+
+cor_stb2 <- corStability(centr_stb2)
+
+edgewts2 <-  bootnet(res2,
+                    nBoots = B,
+                    verbose = FALSE)
+
+
+## Post hoc sample size
+
+sim2 <- netSimulator(res2$graph,
+                     default = "EBICglasso",
+                     nCases = c(50, 100, 150, 200, 250,500),
+                     nReps = 1000,
+                     nCores = 4)
+
+```
+
+# Reporting
+
+## Network figures
+
+```{r}
+
+tiff(width = 15, height = 8, units = "in", res = 100, file = "./manuscript/fig_1.tiff")
+
+  par (mfrow = c(1,2))
+  plot (res1, 
+        title = "a.", 
+        label.cex = 1,
+        curve = 0.4, 
+        curveAll = TRUE)
+  plot (res2, 
+        title = "b.",
+        label.cex = 1,
+        curve = 0.4, 
+        curveAll = TRUE)
+  
+dev.off()
+
+
+```
+
+## Edge weights
+
+```{r}
+
+tiff(width = 8, height = 12, units = "in", res = 100, file = "./manuscript/fig_2.tiff")
+
+  f1 <- plot (edgewts1, order = "sample", CIstyle = "quantiles")
+  f2 <- plot (edgewts2, order = "sample", CIstyle = "quantiles")
+  
+  cowplot::plot_grid(f1, f2, labels = c("a.","b."), 
+                     vjust = 1, hjust = -1, ncol = 2)
+  
+dev.off()
+
+```
+
+## Centrality plot
+
+```{r}
+f1 <- centralityPlot (res1, include = c("Closeness", "Strength", "Betweenness"),  
+              print = FALSE, scale = "relative")  + 
+                  scale_x_continuous(breaks= c(0, 0.5, 1), lim = c(0, 1)) + 
+                  theme(text = element_text(size = 16), 
+                        axis.text.x = element_text(angle = 45, hjust = 1))
+
+f2 <- centralityPlot (res2, include = c("Closeness", "Strength", "Betweenness"),  
+              print = FALSE, scale = "relative")  + 
+                  scale_x_continuous(breaks= c(0, 0.5, 1), lim = c(0, 1)) + 
+                  theme(text = element_text(size = 16), 
+                        axis.text.x = element_text(angle = 45, hjust = 1))
+
+tiff(width = 10, height = 6, units = "in", res = 100, file = "./manuscript/fig_3.tiff")
+
+  cowplot::plot_grid(f1, f2, labels = c("a.","b."), 
+                     vjust = 1, hjust = -1, ncol = 2)
+  
+dev.off()
+
+```
+
+### Report
+
+```{r}
+d1 <- f1$data %>%
+  dplyr::select(node, measure, value)  %>%
+  mutate (measure = factor (measure, levels = c("Strength", "Closeness", "Betweenness"))) %>%
+  arrange (measure, desc (value)) %>%
+  mutate (value = round (value, 2))
+
+
+my_path <- paste0("./manuscript/sm_table3", 
+                  ".docx")
+
+
+ft <- flextable(d1) %>%
+  set_caption(caption = "Supplementary table 3. Centrality indices for baseline") %>%
+  autofit()
+
+my_doc <- read_docx()  %>% 
+  body_add_flextable(ft) 
+print (my_doc, target = my_path)
+
+d2 <- f2$data %>%
+  dplyr::select(node, measure, value)  %>%
+  mutate (measure = factor (measure, levels = c("Strength", "Closeness", "Betweenness"))) %>%
+  arrange (measure, desc (value)) %>%
+  mutate (value = round (value, 2))
+
+my_path <- paste0("./manuscript/sm_table4", 
+                  ".docx")
+
+
+ft <- flextable(d2) %>%
+  set_caption(caption = "Supplementary table 4. Centrality indices for longitudinal") %>%
+  autofit()
+
+my_doc <- read_docx()  %>% 
+  body_add_flextable(ft) 
+print (my_doc, target = my_path)
+```
+
+
+## Centrality stability
+
+```{r}
+
+f1 <- plot (centr_stb1, statistics = c("closeness", "strength", "betweenness"))+ 
+                ylab ("Average Correlation") + 
+                  theme(text = element_text(size = 18))
+
+f2 <- plot (centr_stb2, statistics = c("closeness", "strength", "betweenness"))+ 
+                ylab ("Average Correlation") + 
+                  theme(text = element_text(size = 18))
+
+
+tiff(width = 10, height = 6, units = "in", res = 100, file = "./manuscript/fig_4.tiff")
+
+  cowplot::plot_grid(f1, f2, labels = c("a.","b."), 
+                     vjust = 1, hjust = -1, ncol = 2)
+  
+dev.off()
+
+
+```
+
+# Edge weights table
+
+```{r}
+t1 <- summary (edgewts1) %>%
+  ungroup () %>%
+  filter (type == "edge") %>%
+  dplyr::select (id, node1, node2, sample, q2.5, q97.5) %>%
+  arrange (desc(abs (sample))) %>%
+  mutate_if (is.numeric, round, 2) 
+
+my_path <- paste0("./manuscript/sm_table1", 
+                  ".docx")
+
+
+ft <- flextable(t1) %>%
+  set_caption(caption = "Supplementary table 1. Edge weights and variability for baseline") %>%
+  autofit()
+
+my_doc <- read_docx()  %>% 
+  body_add_flextable(ft) 
+print (my_doc, target = my_path)
+
+t2 <- summary (edgewts2) %>%
+  ungroup () %>%
+  filter (type == "edge") %>%
+  dplyr::select (id, node1, node2, sample, q2.5, q97.5) %>%
+  arrange (desc(abs (sample))) %>%
+  mutate_if (is.numeric, round, 2) 
+
+my_path <- paste0("./manuscript/sm_table2", 
+                  ".docx")
+
+
+ft <- flextable(t2) %>%
+  set_caption(caption = "Supplementary table 2. Edge weights and variability longitudinal") %>%
+  autofit()
+
+my_doc <- read_docx()  %>% 
+  body_add_flextable(ft) 
+print (my_doc, target = my_path)
+```
+
+## Correlation stability
+
+```{r}
+corStability(centr_stb1)
+corStability(centr_stb2)
+```
+
+## Sample size
+
+```{r}
+
+p1 <- plot(sim1,
+           yvar = c("correlation",
+                    "sensitivity",
+                    "specificity", 
+                    "strength",
+                    'closeness',
+                    'betweenness'),
+           xfacet = "measure") +
+  facet_wrap(~ factor (measure, 
+                       levels = c("correlation",
+                    "sensitivity",
+                    "specificity", 
+                    "strength",
+                    'closeness',
+                    'betweenness')), ncol = 6) + 
+  theme_cowplot() +
+  theme (axis.title.x = element_blank(),
+         axis.text.x=element_blank(),
+         axis.ticks.x=element_blank())
+
+p2 <- plot(sim2,
+           yvar = c("correlation",
+                    "sensitivity",
+                    "specificity", 
+                    "strength",
+                    'closeness',
+                    'betweenness'),
+           xfacet = "measure") +
+  facet_wrap(~ factor (measure, 
+                       levels = c("correlation",
+                    "sensitivity",
+                    "specificity", 
+                    "strength",
+                    'closeness',
+                    'betweenness')), ncol = 6) + 
+  theme_cowplot() 
+
+plot_grid(p1, p2, ncol = 1, labels = "auto")
+
+
+tiff(width = 12, height = 6, units = "in", res = 100, file = "./manuscript/fig_5.tiff")
+
+  plot_grid(p1, p2, ncol = 1, labels = "auto")
+  
+dev.off()
+
+
+
+```
+
+
+# Save
+
+```{r}
+res <- list (df1 = df1,
+             df2 = df2,
+             res1 = res1,
+             res2 = res2,
+             centr_stb1 = centr_stb1,
+             centr_stb2 = centr_stb2,
+             edgewts1 = edgewts1,
+             edgewts2 = edgewts2,
+             sim1 = sim1,
+             sim2 = sim2)
+
+saveRDS(res, "output/res.RDS")
+```
+

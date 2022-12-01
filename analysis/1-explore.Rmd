@@ -1,0 +1,162 @@
+---
+title: "1-explore"
+author: ""
+date: "2022-11-16"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+# Import packages
+
+```{r}
+library (tidyverse)
+library (correlation)
+library (janitor)
+```
+
+# Import data
+
+```{r}
+data_list <- rio::import_list("data/WAD_Assess_Sheet.xlsx")
+list2env(data_list,globalenv())
+```
+
+# Tidy data
+```{r}
+musc_m0 <- `Muscular assessment`[-1, ]
+musc_m0[, 1:15] <- map_df (musc_m0[, 1:15], as.numeric)
+names(musc_m0) <- c("subj",
+                     "group",
+                     "tp_l_scm",
+                     "tp_r_scm",
+                     "tp_l_trap",
+                     "tp_r_trp",
+                     "tp_l_subocc",
+                     "tp_r_subocc", 
+                     "tp_l_mass",
+                     "tp_r_mass",
+                     "tp_l_temp",
+                     "tp_r_temp",  
+                     "ccft",
+                     "flex_s",
+                     "ext_s",
+                     "ext_4k",
+                     "rot_4k")
+
+art_m0 <- `Articular assessment`[-1, ]
+art_m0 <- map_df (art_m0, as.numeric)
+names(art_m0) <- c("subj",
+                   "group",
+                   "c1",
+                   "c2",
+                   "c3",
+                   "l_c0c1",
+                   "l_c1c2",
+                   "l_c2c3",
+                   "l_c3c4",
+                   "r_c0c1",
+                   "r_c1c2",
+                   "r_c2c3",
+                   "r_c3c4",
+                   "crom_f",
+                   "crom_e",
+                   "crom_llf",
+                   "crom_rlf",
+                   "crom_lrot",
+                   "crom_rrot",
+                   "frt_l",
+                   "frt_r",
+                   "fhp")
+
+neural_m0 <- `Neural assessment`[-1, ]
+neural_m0 <- map_df (neural_m0, as.numeric)
+names(neural_m0) <- c("subj",
+                     "group",
+                     "ppt_l_med",
+                     "ppt_r_med",
+                     "ppt_l_rad",
+                     "ppt_r_rad",
+                     "ppt_l_uln",
+                     "ppt_r_uln", 
+                     "ppt_l_sup",
+                     "ppt_r_sup",
+                     "l_gon",
+                     "r_gon",  
+                     "ultt_1_l",
+                     "ullt_1_r",
+                     "ultt_2_l",
+                     "ullt_2_r",
+                     "ultt_3_l",
+                     "ullt_3_r",
+                     "bppt_l",
+                     "bppt_r")
+
+psych_m0 <- `Psyc assessment Baseline`
+names(psych_m0) <- c("subj",
+                     "group",
+                     "age0",
+                     "sex0",
+                     "ht0",
+                     "wt0",
+                     "days0",
+                     "neckp0",
+                     "headp0",
+                     "ndi0",
+                     "tsk0",
+                     "pcs0",
+                     "anx0")
+psych_m0 <- psych_m0 %>%
+  separate(anx0, into = c("anx0_state", "anx0_range"), sep = "-") 
+
+psych_m6 <- `Psyc assessment 6 months`
+names(psych_m6) <- c("subj",
+                     "group",
+                     "age6",
+                     "sex6",
+                     "ht6",
+                     "wt6",
+                     "neckp6",
+                     "headp6",
+                     "ndi6",
+                     "tsk6",
+                     "pcs6",
+                     "anx6")
+psych_m6 <- psych_m6 %>%
+  separate(anx6, into = c("anx6_state", "anx6_range"), sep = "--") 
+  
+  
+df <- musc_m0 %>%
+  dplyr::full_join (art_m0, by = c("subj", "group")) %>%
+  dplyr::full_join (neural_m0, by = c("subj", "group")) %>%
+  dplyr::full_join (psych_m0, by = c("subj", "group")) %>%
+  dplyr::full_join (psych_m6, by = c("subj", "group")) %>%
+  mutate_at(vars(matches("anx|neck|head|ndi|tsk|pcs")), as.numeric) %>%
+  #mutate (headp0 = str_remove(headp0, " -.*") %>% as.numeric) %>%
+  #mutate (anx0 = str_remove(anx0, " -.*") %>% as.numeric) %>%
+  # mutate (neckp6 = str_remove_all(neckp6, " -.*|Lost") %>% as.numeric) %>%
+  # mutate (headp6 = str_remove_all(headp6, " -.*|Lost") %>% as.numeric) %>%
+  # mutate (ndi6 = str_remove_all(ndi6, " -.*|Lost") %>% as.numeric) %>%
+  # mutate (tsk6 = str_remove_all(tsk6, " -.*|Lost") %>% as.numeric) %>%
+  # mutate (pcs6 = str_remove_all(pcs6, " -.*|Lost") %>% as.numeric) %>%
+  #mutate (anx6 = str_remove_all(anx6, " -.*|Lost") %>% as.numeric) %>%
+  mutate (ext_4k = factor(ext_4k),
+          rot_4k = factor(rot_4k),
+          sex0 = factor (sex0),
+          group = factor (group)) %>%
+  dplyr::select (-c(age6, sex6, ht6, wt6))%>%
+  dplyr::select (subj, group, sex0, age0, ht0, wt0, days0, everything())
+
+saveRDS(df, "output/df.RDS")
+ 
+skimr::skim (df)
+
+corr_df <- correlation (na.omit(df[,-1]), method = "auto")
+# names(corr_df) <- names(rez)
+# corr_df <- corr_df %>%
+#   filter (abs(r) > 0.4)
+# d
+# plot(visualisation_recipe.correlation(corr_df, layout = "dendrogram"))
+
+```
+
